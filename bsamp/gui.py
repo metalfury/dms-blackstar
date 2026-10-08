@@ -17,7 +17,7 @@ from .widgets import KnobControl, VoiceSelector, led, revert_button, set_led, se
 
 APP_ID = 'io.github.metalfury.bsamp'
 FONTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'fonts')
-VOICE_SHORT = ['CLN WARM', 'CLN BRIGHT', 'CRUNCH', 'SUPER', 'OD1', 'OD2']
+VOICE_SHORT = ['WARM', 'BRIGHT', 'CRUNCH', 'SUPER', 'OD1', 'OD2']
 FX = [('mod', 'Mod', 'Modulation', 'mod_type', A.MOD_TYPES),
       ('delay', 'Delay', 'Delay', 'delay_type', A.DELAY_TYPES),
       ('reverb', 'Reverb', 'Reverb', 'reverb_type', A.REVERB_TYPES)]

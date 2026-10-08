@@ -288,26 +288,32 @@ class KnobControl(Gtk.Box):
 
 
 class VoiceSelector(Gtk.DrawingArea):
-    """Six-position rotary switch with a chicken-head knob."""
+    """Six-position rotary switch with a chicken-head knob.
+
+    Click a position label to jump to it; drag the knob itself (up/down or
+    left/right), scroll, or use the arrow keys to step."""
 
     __gsignals__ = {'changed': (GObject.SignalFlags.RUN_FIRST, None, (int,))}
     W, H = 222, 158
+    LABEL_R, DOT_R, BODY_R, GRAB_R = 62, 46, 24, 40
+    FONT = 'Barlow Condensed SemiBold 11'
 
     def __init__(self, labels):
         super().__init__(accessible_role=Gtk.AccessibleRole.SLIDER)
         self.labels = labels
         self.value = 0
+        self.rects = []            # label hit boxes, filled while drawing
         self.set_content_width(self.W)
         self.set_content_height(self.H)
         self.set_focusable(True)
         self.set_draw_func(self.draw)
         self.update_property([Gtk.AccessibleProperty.LABEL], ['Voice'])
         click = Gtk.GestureClick()
-        click.connect('pressed', self.on_click)
+        click.connect('released', self.on_click)
         self.add_controller(click)
         drag = Gtk.GestureDrag()
-        drag.connect('drag-begin', lambda *_: setattr(self, '_v0', self.value))
-        drag.connect('drag-update', lambda g, dx, dy: self.user_set(self._v0 - round(dy / 28)))
+        drag.connect('drag-begin', self.on_drag_begin)
+        drag.connect('drag-update', self.on_drag_update)
         self.add_controller(drag)
         scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect('scroll', lambda c, dx, dy: self.user_set(self.value + (-1 if dy > 0 else 1)) or True)
@@ -317,12 +323,14 @@ class VoiceSelector(Gtk.DrawingArea):
         self.add_controller(keys)
         self.connect('notify::has-focus', lambda *_: self.queue_draw())
         self._v0 = 0
+        self._dragging = False
+        self._moved = False
 
     def angle(self, i):
         return -135 + 270 * i / (len(self.labels) - 1)
 
-    def geometry(self, w, h):
-        return w / 2, h / 2 + 10, 76
+    def centre(self):
+        return self.get_width() / 2, self.get_height() / 2 + 10
 
     def set_value(self, v):
         if v != self.value and 0 <= v < len(self.labels):
@@ -336,17 +344,28 @@ class VoiceSelector(Gtk.DrawingArea):
             self.set_value(v)
             self.emit('changed', v)
 
-    def on_click(self, g, n, x, y):
+    # Only a press on the knob itself starts a drag, so clicking a label
+    # never gets undone by a tiny mouse movement.
+    def on_drag_begin(self, g, x, y):
+        cx, cy = self.centre()
+        self._dragging = math.hypot(x - cx, y - cy) <= self.GRAB_R
+        self._moved = False
+        self._v0 = self.value
         self.grab_focus()
-        cx, cy, r = self.geometry(self.get_width(), self.get_height())
-        best, dist = None, 26
-        for i in range(len(self.labels)):
-            lx, ly = polar(cx, cy, r, self.angle(i))
-            d = math.hypot(lx - x, ly - y)
-            if d < dist:
-                best, dist = i, d
-        if best is not None:
-            self.user_set(best)
+
+    def on_drag_update(self, g, dx, dy):
+        if not self._dragging or math.hypot(dx, dy) < 6:
+            return
+        self._moved = True
+        self.user_set(self._v0 + round((dx - dy) / 30))
+
+    def on_click(self, g, n, x, y):
+        if self._moved:
+            return
+        for i, (x0, y0, x1, y1) in enumerate(self.rects):
+            if x0 - 6 <= x <= x1 + 6 and y0 - 6 <= y <= y1 + 6:
+                self.user_set(i)
+                return
 
     def on_key(self, c, keyval, code, state):
         if keyval in (Gdk.KEY_Up, Gdk.KEY_Right):
@@ -358,25 +377,37 @@ class VoiceSelector(Gtk.DrawingArea):
         return True
 
     def draw(self, area, cr, w, h):
-        cx, cy, r = self.geometry(w, h)
+        cx, cy = w / 2, h / 2 + 10
         layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription.from_string(self.FONT))
+        rects = []
         for i, text in enumerate(self.labels):
             on = i == self.value
-            layout.set_font_description(Pango.FontDescription.from_string(
-                'Barlow Condensed SemiBold 10.5'))
+            a = self.angle(i)
             layout.set_text(text, -1)
             tw, th = layout.get_pixel_size()
-            lx, ly = polar(cx, cy, r, self.angle(i))
+            lx, ly = polar(cx, cy, self.LABEL_R, a)
+            # Anchor the text on its inner edge so it never reaches the knob:
+            # labels on the left end at the point, on the right start there.
+            sx = math.sin(math.radians(a))
+            if sx < -0.35:
+                x = lx - tw
+            elif sx > 0.35:
+                x = lx
+            else:
+                x = lx - tw / 2
+            y = ly - th / 2 - (6 if abs(sx) <= 0.35 else 0)
+            rects.append((x, y, x + tw, y + th))
             cr.set_source_rgba(*rgb('#ffcf73' if on else '#8f8879'))
-            cr.move_to(lx - tw / 2, ly - th / 2)
+            cr.move_to(x, y)
             PangoCairo.show_layout(cr, layout)
-            # position dot
-            dx, dy = polar(cx, cy, r - 22, self.angle(i))
+            dx, dy = polar(cx, cy, self.DOT_R, a)
             cr.set_source_rgba(*rgb('#ffbf4d' if on else '#5a554c'))
-            cr.arc(dx, dy, 2.2 if on else 1.6, 0, 2 * math.pi)
+            cr.arc(dx, dy, 2.4 if on else 1.7, 0, 2 * math.pi)
             cr.fill()
+        self.rects = rects
 
-        body = 24
+        body = self.BODY_R
         shadow(cr, cx, cy, body, 5, 0.6)
         g = cairo.RadialGradient(cx - 8, cy - 9, 2, cx, cy, body)
         g.add_color_stop_rgba(0, *rgb('#3d3d3d'))
@@ -385,11 +416,11 @@ class VoiceSelector(Gtk.DrawingArea):
         cr.arc(cx, cy, body, 0, 2 * math.pi)
         cr.fill()
 
-        # chicken-head bar
+        # chicken-head bar (stays inside the dot ring)
         cr.save()
         cr.translate(cx, cy)
         cr.rotate(math.radians(self.angle(self.value)))
-        bw, top, bottom = 14, -38, 13
+        bw, top, bottom = 14, -(self.DOT_R - 8), 12
         g = cairo.LinearGradient(-bw / 2, 0, bw / 2, 0)
         for off, col in ((0, '#121212'), (0.45, '#333333'), (1, '#101010')):
             g.add_color_stop_rgba(off, *rgb(col))
@@ -405,14 +436,14 @@ class VoiceSelector(Gtk.DrawingArea):
         cr.set_line_width(2.2)
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         cr.move_to(0, top + 4)
-        cr.line_to(0, top + 18)
+        cr.line_to(0, top + 16)
         cr.stroke()
         cr.restore()
 
         if self.has_focus():
             cr.set_source_rgba(*rgb('#e7a83e', 0.9))
             cr.set_line_width(2)
-            cr.arc(cx, cy, body + 6, 0, 2 * math.pi)
+            cr.arc(cx, cy, body + 5, 0, 2 * math.pi)
             cr.stroke()
 
 
