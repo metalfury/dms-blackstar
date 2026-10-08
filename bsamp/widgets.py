@@ -84,12 +84,16 @@ class Knob(Gtk.DrawingArea):
         self.grab_focus()
 
     def on_drag_update(self, g, dx, dy):
+        # Up or right turns it up; a full turn takes ~250 px (Shift: 4x finer)
         fine = g.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK
-        span = (self.hi - self.lo) / (800 if fine else 200)
-        self.user_set(self._v0 - dy * span)
+        span = (self.hi - self.lo) / (1000 if fine else 250)
+        self.user_set(self._v0 + (dx - dy) * span)
 
     def on_scroll(self, c, dx, dy):
-        self.user_set(self.value - (1 if dy > 0 else -1) * self.step)
+        # One wheel notch = 0.2 on the 0-10 scale (Shift: the smallest step)
+        fine = c.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK
+        step = self.step if fine else max(self.step, round((self.hi - self.lo) / 50))
+        self.user_set(self.value - (1 if dy > 0 else -1) * step)
         return True
 
     def on_key(self, c, keyval, code, state):
@@ -181,13 +185,27 @@ class Knob(Gtk.DrawingArea):
             cr.stroke()
 
 
-class KnobControl(Gtk.Box):
-    """Knob with its engraved name and a value readout."""
+# How a raw control value is shown and typed: (to display, from display,
+# display min, display max, step, digits, unit)
+UNITS = {
+    'knob': (lambda v: v / 12.7, lambda d: round(d * 12.7), 0, 10, 0.1, 1, ''),
+    'seg': (float, round, 0, 31, 1, 0, ''),
+    'ms': (float, lambda d: int(round(d / 10) * 10), 100, 2000, 10, 0, ' ms'),
+}
 
-    def __init__(self, label, lo, hi, fmt, size=96, ends=('0', '10')):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4,
+
+class KnobControl(Gtk.Box):
+    """Knob with its engraved name and a value readout.
+
+    Besides dragging and scrolling, clicking the readout (or double-clicking
+    the knob) opens a popover with a wide slider and a number field."""
+
+    def __init__(self, label, lo, hi, kind, size=96, ends=('0', '10')):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                          halign=Gtk.Align.CENTER)
-        self.fmt = fmt
+        self.kind = kind
+        self.to_disp, self.from_disp, dlo, dhi, step, digits, self.unit = UNITS[kind]
+        self.digits = digits
         self.add_css_class('knob-control')
         over = Gtk.Overlay()
         self.knob = Knob(lo, hi, size, label=label)
@@ -202,15 +220,52 @@ class KnobControl(Gtk.Box):
         name = Gtk.Label(label=label.upper())
         name.add_css_class('knob-name')
         self.append(name)
-        self.readout = Gtk.Label()
-        self.readout.add_css_class('knob-value')
+
+        # readout = button that opens the fine-edit popover
+        self.readout = Gtk.Button(halign=Gtk.Align.CENTER, tooltip_text='Set exact value')
+        self.readout.add_css_class('knob-value-btn')
+        pop = self.popover = Gtk.Popover()
+        box = Gtk.Box(spacing=10, margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+        self.adj = Gtk.Adjustment(lower=dlo, upper=dhi, step_increment=step,
+                                  page_increment=step * 10)
+        scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=self.adj,
+                          draw_value=False, width_request=260)
+        spin = Gtk.SpinButton(adjustment=self.adj, digits=digits, numeric=True, width_chars=5)
+        spin.connect('activate', lambda *_: pop.popdown())
+        box.append(Gtk.Label(label=label))
+        box.append(scale)
+        box.append(spin)
+        pop.set_child(box)
+        pop.connect('show', lambda *_: spin.grab_focus())
+        pop.set_parent(self.readout)
+        self.readout.connect('clicked', lambda *_: pop.popup())
         self.append(self.readout)
-        self.knob.connect('changed', lambda _k, v: self.readout.set_label(fmt(v)))
-        self.readout.set_label(fmt(lo))
+        self._syncing = False
+        self.adj.connect('value-changed', self.on_adj)
+
+        dbl = Gtk.GestureClick()
+        dbl.connect('pressed', lambda g, n, x, y: n == 2 and pop.popup())
+        self.knob.add_controller(dbl)
+        self.knob.connect('changed', lambda _k, v: self.sync(v))
+        self.sync(lo)
+
+    def text(self, v):
+        d = self.to_disp(v)
+        return (f'{d:.{self.digits}f}' if self.digits else str(int(d))) + self.unit
+
+    def sync(self, v):
+        self.readout.set_label(self.text(v))
+        self._syncing = True
+        self.adj.set_value(self.to_disp(v))
+        self._syncing = False
+
+    def on_adj(self, adj):
+        if not self._syncing:
+            self.knob.user_set(self.from_disp(adj.get_value()))
 
     def set_value(self, v):
         self.knob.set_value(v)
-        self.readout.set_label(self.fmt(self.knob.value))
+        self.sync(self.knob.value)
 
     def connect_changed(self, cb):
         self.knob.connect('changed', lambda _k, v: cb(v))
@@ -296,10 +351,6 @@ class VoiceSelector(Gtk.DrawingArea):
             layout.set_text(text, -1)
             tw, th = layout.get_pixel_size()
             lx, ly = polar(cx, cy, r, self.angle(i))
-            if on:
-                cr.set_source_rgba(*rgb('#ffbf4d', 0.25))
-                cr.arc(lx, ly, 13, 0, 2 * math.pi)
-                cr.fill()
             cr.set_source_rgba(*rgb('#ffcf73' if on else '#8f8879'))
             cr.move_to(lx - tw / 2, ly - th / 2)
             PangoCairo.show_layout(cr, layout)

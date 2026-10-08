@@ -36,6 +36,8 @@ def run_steps():
             win.on_tile(None, int(st[4:]))
         elif st.startswith('fx'):
             win.set_focus_fx(st[2:])
+        elif st == 'pop':
+            win.knobs['gain'].popover.popup()
         elif st == 'offline':
             win.disconnect_amp()
     GLib.timeout_add(900, lambda: (snap(out + '.png'), app.quit()))

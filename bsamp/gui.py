@@ -59,6 +59,11 @@ window.amp, window.amp .amp-bg {
 .knob-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 14px; letter-spacing: 2px; color: #ece6da;
              text-shadow: 0 1px 0 rgba(0,0,0,.8); }
 .knob-value { font-family: Barlow; font-size: 12px; color: #a59c8a; font-feature-settings: "tnum"; }
+button.knob-value-btn { min-height: 24px; min-width: 44px; padding: 0 8px; border-radius: 6px; background: none;
+                           border: 1px solid transparent; box-shadow: none; color: #a59c8a;
+                           font-family: Barlow; font-size: 12px; font-feature-settings: "tnum"; }
+button.knob-value-btn:hover { border-color: #3a372f; background: rgba(255,255,255,.04); color: #ece6da; }
+button.knob-value-btn:active { border-color: #e7a83e; color: #ffcf73; }
 .knob-end { font-family: "Barlow Condensed"; font-weight: 600; font-size: 10px; color: #8f8879; }
 .small .knob-name { font-size: 12px; }
 
@@ -85,6 +90,8 @@ button.tile.on { border-color: #e7a83e; background-image: linear-gradient(180deg
 .tile-voice, .hint { font-family: Barlow; font-size: 12px; color: #8f8879; }
 
 .seg { border-radius: 8px; border: 1px solid #050505; background: #141416; }
+.seg button:first-child { border-top-left-radius: 7px; border-bottom-left-radius: 7px; }
+.seg button:last-child { border-top-right-radius: 7px; border-bottom-right-radius: 7px; }
 .seg button { min-height: 34px; padding: 0 10px; border-radius: 0; border: none; border-right: 1px solid #050505;
               background: none; box-shadow: none; color: #a59c8a;
               font-family: "Barlow Condensed"; font-weight: 600; font-size: 12px; letter-spacing: 2px; }
@@ -102,14 +109,6 @@ button.amp-btn.primary:hover { background: #f0b552; }
 .lib-row { padding: 12px; border-radius: 10px; background: #1e1d1b; border: 1px solid #2b2925; }
 .lib-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 15px; letter-spacing: 1.5px; }
 """
-
-
-def fmt_for(kind):
-    if kind == 'knob':
-        return lambda v: f'{v / 12.7:.1f}'
-    if kind == 'ms':
-        return lambda v: f'{int(v)} ms'
-    return lambda v: str(int(v))
 
 
 def load_fonts():
@@ -248,7 +247,7 @@ class Window(Adw.ApplicationWindow):
 
     def knob(self, ctl, title, kind, size=96, ends=('0', '10')):
         _cid, lo, hi = A.CONTROLS[ctl]
-        k = KnobControl(title, lo, hi, fmt_for(kind), size, ends)
+        k = KnobControl(title, lo, hi, kind, size, ends)
         if size < 96:
             k.add_css_class('small')
         k.connect_changed(lambda v, ctl=ctl: self.queue(ctl, v))
@@ -303,7 +302,7 @@ class Window(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, hexpand=True)
         head = Gtk.Box()
         head.append(label('PATCHES ON THE AMP', 'section-title', xalign=0, hexpand=True))
-        head.append(label('Drag a knob up/down or scroll · Shift for fine', 'hint'))
+        head.append(label('Knobs: drag, scroll, or click the value to type it', 'hint'))
         box.append(head)
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
         self.tiles = []
@@ -339,7 +338,7 @@ class Window(Adw.ApplicationWindow):
         head.append(self.fx_led)
         inner.append(head)
 
-        tabs = Gtk.Box(homogeneous=True)
+        tabs = Gtk.Box(homogeneous=True, overflow=Gtk.Overflow.HIDDEN)
         tabs.add_css_class('seg')
         self.fx_tabs = {}
         group = None
@@ -357,7 +356,7 @@ class Window(Adw.ApplicationWindow):
         self.type_buttons = {}
         for key, _s, _l, type_ctl, types in FX:
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-            seg = Gtk.Box(homogeneous=True)
+            seg = Gtk.Box(homogeneous=True, overflow=Gtk.Overflow.HIDDEN)
             seg.add_css_class('seg')
             group, btns = None, []
             for i, t in enumerate(types):
