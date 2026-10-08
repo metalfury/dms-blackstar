@@ -1,5 +1,6 @@
-"""Blackstar Amp - a GTK 4 / libadwaita app for the ID:Core."""
+"""Blackstar Amp - an amp-faceplate style editor for the ID:Core (GTK 4)."""
 
+import ctypes
 import os
 import sys
 
@@ -11,251 +12,406 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import amp as A  # noqa: E402
 from . import presets as P  # noqa: E402
+from .widgets import KnobControl, VoiceSelector, led, set_led  # noqa: E402
 
 APP_ID = 'io.github.metalfury.bsamp'
-
-CSS = b"""
-.slot-badge {
-  min-width: 26px; min-height: 26px; border-radius: 99px;
-  font-weight: bold; font-feature-settings: "tnum";
-  background: alpha(currentColor, .08);
+FONTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'fonts')
+VOICE_SHORT = ['CLN WARM', 'CLN BRIGHT', 'CRUNCH', 'SUPER', 'OD1', 'OD2']
+FX = [('mod', 'Mod', 'Modulation', 'mod_type', A.MOD_TYPES),
+      ('delay', 'Delay', 'Delay', 'delay_type', A.DELAY_TYPES),
+      ('reverb', 'Reverb', 'Reverb', 'reverb_type', A.REVERB_TYPES)]
+FX_KNOBS = {
+    'mod': [('mod_level', 'Level', 'knob'), ('mod_speed', 'Speed', 'knob'),
+            ('mod_segval', 'Amount', 'seg'), ('mod_manual', 'Manual', 'knob')],
+    'delay': [('delay_time', 'Time', 'ms'), ('delay_feedback', 'Feedback', 'seg'),
+              ('delay_level', 'Level', 'knob')],
+    'reverb': [('reverb_size', 'Size', 'seg'), ('reverb_level', 'Level', 'knob')],
 }
-.slot-row.active { background: alpha(@accent_bg_color, .16); }
-.slot-row.active .slot-badge { background: @accent_bg_color; color: @accent_fg_color; }
-.voice-switch button { padding: 6px 10px; }
-.knob-value { font-feature-settings: "tnum"; min-width: 40px; }
-.fx-off row { opacity: .55; }
+
+CSS = """
+window.amp, window.amp .amp-bg {
+  background-color: #121213;
+  background-image: radial-gradient(circle, rgba(255,255,255,.045) 1px, transparent 1.4px),
+                    radial-gradient(circle, rgba(0,0,0,.55) 1px, transparent 1.4px);
+  background-size: 5px 5px, 7px 7px;
+  background-position: 0 0, 2px 3px;
+  color: #ece6da;
+}
+.amp headerbar {
+  background: rgba(10,10,11,.85); box-shadow: none;
+  border-bottom: 1px solid rgba(255,255,255,.06); color: #ece6da;
+}
+.amp .title-main { font-family: "Barlow Condensed"; font-weight: 700; font-size: 19px; letter-spacing: 2px; }
+.amp .title-sub { font-family: Barlow; font-size: 12px; color: #a59c8a; }
+.amp .conn { font-family: Barlow; font-size: 13px; color: #a59c8a; }
+
+.plate {
+  border-radius: 16px; border: 1px solid #000;
+  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0, rgba(255,255,255,.014) 1px, transparent 1px, transparent 3px),
+                    linear-gradient(180deg, #2c2c2f 0%, #1d1d20 55%, #18181a 100%);
+  box-shadow: inset 0 0 0 2px #0c0c0d, inset 0 0 0 3px rgba(231,168,62,.38),
+              inset 0 1px 0 4px rgba(255,255,255,.04), 0 24px 48px rgba(0,0,0,.6);
+}
+.plate-section { padding: 0 18px; border-right: 1px solid rgba(0,0,0,.6); box-shadow: 1px 0 0 rgba(255,255,255,.05); }
+.plate-section.last { border-right: none; box-shadow: none; }
+.plate flowboxchild { padding: 0; background: none; }
+.section-title { font-family: "Barlow Condensed"; font-weight: 600; font-size: 11px; letter-spacing: 3px; color: #a59c8a; }
+.knob-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 14px; letter-spacing: 2px; color: #ece6da;
+             text-shadow: 0 1px 0 rgba(0,0,0,.8); }
+.knob-value { font-family: Barlow; font-size: 12px; color: #a59c8a; font-feature-settings: "tnum"; }
+.knob-end { font-family: "Barlow Condensed"; font-weight: 600; font-size: 10px; color: #8f8879; }
+.small .knob-name { font-size: 12px; }
+
+.led { min-width: 9px; min-height: 9px; border-radius: 99px; background: #3a2a12;
+       box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
+.led.on { background: #ffbf4d; box-shadow: 0 0 6px 2px rgba(255,170,40,.65), 0 0 18px rgba(255,170,40,.35); }
+.led.green.on { background: #7dffa8; box-shadow: 0 0 6px 2px rgba(80,230,130,.55); }
+
+button.fx { min-width: 118px; min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #050505;
+            background-image: linear-gradient(180deg, #303033, #1f1f22);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 3px 6px rgba(0,0,0,.5);
+            color: #ece6da; font-family: "Barlow Condensed"; font-weight: 600; font-size: 14px; letter-spacing: 3px; }
+button.fx:hover { background-image: linear-gradient(180deg, #38383b, #252528); }
+button.fx.focus { border-color: rgba(231,168,62,.75); }
+
+button.tile { padding: 14px 14px 12px; border-radius: 10px; border: 1px solid #2b2925;
+              background-image: linear-gradient(180deg, #1d1c1a, #151514); color: #ece6da; box-shadow: none; }
+button.tile:hover { border-color: #4a4335; }
+button.tile.on { border-color: #e7a83e; background-image: linear-gradient(180deg, #2b2417, #1a1712);
+                 box-shadow: 0 0 0 1px rgba(231,168,62,.35), 0 8px 24px rgba(231,140,30,.12); }
+.tile-num { font-family: "Barlow Condensed"; font-weight: 700; font-size: 22px; color: #6f6a60; }
+.tile.on .tile-num { color: #ffcf73; }
+.tile-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 15px; letter-spacing: 1.5px; }
+.tile-voice, .hint { font-family: Barlow; font-size: 12px; color: #8f8879; }
+
+.seg { border-radius: 8px; border: 1px solid #050505; background: #141416; }
+.seg button { min-height: 34px; padding: 0 10px; border-radius: 0; border: none; border-right: 1px solid #050505;
+              background: none; box-shadow: none; color: #a59c8a;
+              font-family: "Barlow Condensed"; font-weight: 600; font-size: 12px; letter-spacing: 2px; }
+.seg button:last-child { border-right: none; }
+.seg button:checked { background-image: linear-gradient(180deg, #3a301d, #2a2215); color: #ffcf73; }
+
+button.amp-btn { min-height: 34px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a372f;
+                 background: #1e1d1b; color: #ece6da; font-family: Barlow; font-weight: 500; box-shadow: none; }
+button.amp-btn:hover { background: #262421; }
+button.amp-btn:checked { background: #2b2417; border-color: #e7a83e; }
+button.amp-btn.primary { background: #e7a83e; border-color: #e7a83e; color: #1a1408; font-weight: 600; }
+button.amp-btn.primary:hover { background: #f0b552; }
+
+.drawer { background: #161615; border-left: 1px solid #2b2925; box-shadow: -20px 0 40px rgba(0,0,0,.5); }
+.lib-row { padding: 12px; border-radius: 10px; background: #1e1d1b; border: 1px solid #2b2925; }
+.lib-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 15px; letter-spacing: 1.5px; }
 """
 
-# (control, label, kind) - kind: knob (0..127 shown 0..10), seg (0..31), ms
-AMP_ROWS = [('gain', 'Gain', 'knob'), ('volume', 'Volume', 'knob'),
-            ('bass', 'Bass', 'knob'), ('middle', 'Middle', 'knob'),
-            ('treble', 'Treble', 'knob'), ('isf', 'ISF', 'knob')]
-FX_ROWS = {
-    'mod': ('Modulation', 'mod_type', A.MOD_TYPES,
-            [('mod_level', 'Level', 'knob'), ('mod_speed', 'Speed', 'knob'),
-             ('mod_segval', 'Amount', 'seg'), ('mod_manual', 'Manual (flanger)', 'knob')]),
-    'delay': ('Delay', 'delay_type', A.DELAY_TYPES,
-              [('delay_time', 'Time', 'ms'), ('delay_feedback', 'Feedback', 'seg'),
-               ('delay_level', 'Level', 'knob')]),
-    'reverb': ('Reverb', 'reverb_type', A.REVERB_TYPES,
-               [('reverb_size', 'Size', 'seg'), ('reverb_level', 'Level', 'knob')]),
-}
-SUBTITLES = {'isf': 'USA  ←→  UK'}
 
-
-def fmt(kind, v):
+def fmt_for(kind):
     if kind == 'knob':
-        return f'{v / 12.7:.1f}'
+        return lambda v: f'{v / 12.7:.1f}'
     if kind == 'ms':
-        return f'{int(v)} ms'
-    return str(int(v))
+        return lambda v: f'{int(v)} ms'
+    return lambda v: str(int(v))
+
+
+def load_fonts():
+    """Make the bundled Barlow fonts available to this process only."""
+    if not os.path.isdir(FONTS):
+        return
+    try:
+        fc = ctypes.CDLL('libfontconfig.so.1')
+        fc.FcConfigAppFontAddDir.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        fc.FcConfigAppFontAddDir(None, FONTS.encode())
+    except OSError:
+        pass
+
+
+def label(text, *classes, **kw):
+    lab = Gtk.Label(label=text, **kw)
+    for c in classes:
+        lab.add_css_class(c)
+    return lab
 
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title='Blackstar Amp')
-        self.set_default_size(1000, 760)
-        self.set_size_request(360, 480)
+        self.add_css_class('amp')
+        self.set_default_size(1240, 820)
+        self.set_size_request(380, 520)
         self.amp = None
         self.watch_id = 0
         self.updating = False
         self.pending = {}
         self.flush_id = 0
         self.names = [''] * A.SLOTS
-        self.active = None        # last selected slot
+        self.voices = [0] * A.SLOTS
+        self.active = None
         self.edited = False
-        self.previewing = None    # library patch shown live but not saved
-        self.scales = {}
-        self.fx = {}
-        self.combos = {}
+        self.previewing = None
+        self.focus = 'delay'
+        self.knobs = {}
 
         self.toasts = Adw.ToastOverlay()
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self.toasts.set_child(self.stack)
         self.set_content(self.toasts)
-
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(self.build_header())
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self.build_offline(), 'offline')
         self.stack.add_named(self.build_main(), 'main')
+        tv.set_content(self.stack)
+        self.toasts.set_child(tv)
         self.install_actions()
+        self.set_focus_fx(self.focus)
 
         self.connect('close-request', lambda *_: self.disconnect_amp() or False)
         self.try_connect()
         GLib.timeout_add_seconds(2, self.reconnect_tick)
 
     # ------------------------------------------------------------------
-    # UI construction
+    # Construction
+    def build_header(self):
+        hb = Adw.HeaderBar()
+        left = Gtk.Box(spacing=10, margin_start=6)
+        self.conn_led = led()
+        self.conn_led.add_css_class('green')
+        left.append(self.conn_led)
+        self.conn_label = label('Not connected', 'conn')
+        left.append(self.conn_label)
+        hb.pack_start(left)
+
+        title = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        self.title_main = label('ID:CORE', 'title-main')
+        self.title_sub = label('', 'title-sub')
+        title.append(self.title_main)
+        title.append(self.title_sub)
+        hb.set_title_widget(title)
+
+        hb.pack_end(self.menu_button())
+        self.save_btn = Gtk.Button(label='Save')
+        self.save_btn.add_css_class('amp-btn')
+        self.save_btn.add_css_class('primary')
+        self.save_btn.set_tooltip_text('Store the current sound in the selected slot')
+        self.save_btn.connect('clicked', lambda *_: self.guard(self.save_current))
+        hb.pack_end(self.save_btn)
+        self.lib_btn = Gtk.ToggleButton(label='Library')
+        self.lib_btn.add_css_class('amp-btn')
+        self.lib_btn.connect('toggled', lambda b: self.drawer.set_reveal_child(b.get_active()))
+        hb.pack_end(self.lib_btn)
+        return hb
+
     def build_offline(self):
-        tv = Adw.ToolbarView()
-        tv.add_top_bar(Adw.HeaderBar())
-        sp = Adw.StatusPage(icon_name='audio-input-microphone-symbolic',
-                            title='Amp not connected',
+        sp = Adw.StatusPage(icon_name='audio-speakers-symbolic', title='Amp not connected',
                             description='Connect the ID:Core over USB and switch it on.\n'
                                         'If it was already on, power-cycle it with the cable plugged in.')
+        sp.add_css_class('amp-bg')
         btn = Gtk.Button(label='Try again', halign=Gtk.Align.CENTER)
-        btn.add_css_class('pill')
-        btn.add_css_class('suggested-action')
+        btn.add_css_class('amp-btn')
+        btn.add_css_class('primary')
         btn.connect('clicked', lambda *_: self.try_connect(verbose=True))
         sp.set_child(btn)
-        tv.set_content(sp)
-        return tv
+        return sp
 
     def build_main(self):
-        split = Adw.NavigationSplitView(min_sidebar_width=260, max_sidebar_width=320)
-        split.set_sidebar(self.build_sidebar())
-        split.set_content(self.build_content())
-        self.split = split
-        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 720sp'))
-        bp.add_setter(split, 'collapsed', True)
+        overlay = Gtk.Overlay()
+        sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        sw.add_css_class('amp-bg')
+        clamp = Adw.Clamp(maximum_size=1360, tightening_threshold=1200)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22,
+                       margin_top=26, margin_bottom=30, margin_start=28, margin_end=28)
+        body.append(self.build_plate())
+
+        bottom = Gtk.Box(spacing=22)
+        bottom.append(self.build_patches())
+        bottom.append(self.build_fx_card())
+        body.append(bottom)
+        clamp.set_child(body)
+        sw.set_child(clamp)
+        overlay.set_child(sw)
+
+        self.drawer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_LEFT,
+                                   halign=Gtk.Align.END, valign=Gtk.Align.FILL)
+        self.drawer.set_child(self.build_library())
+        overlay.add_overlay(self.drawer)
+
+        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 1000sp'))
+        bp.add_setter(bottom, 'orientation', Gtk.Orientation.VERTICAL)
         self.add_breakpoint(bp)
-        narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 560sp'))
-        narrow.add_setter(split, 'collapsed', True)
-        narrow.add_setter(self.voice_row, 'visible', False)
-        narrow.add_setter(self.voice_combo, 'visible', True)
-        for sc, _v, _k in self.scales.values():
-            narrow.add_setter(sc, 'width-request', 150)
-        self.add_breakpoint(narrow)
-        return split
+        return overlay
 
-    def build_sidebar(self):
-        tv = Adw.ToolbarView()
-        hb = Adw.HeaderBar()
-        hb.set_title_widget(Adw.WindowTitle(title='Patches'))
-        tv.add_top_bar(hb)
+    def section(self, title, child, last=False):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.add_css_class('plate-section')
+        if last:
+            box.add_css_class('last')
+        box.append(label(title.upper(), 'section-title', xalign=0))
+        box.append(child)
+        return box
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                      margin_top=6, margin_bottom=12, margin_start=6, margin_end=6)
+    def knob(self, ctl, title, kind, size=96, ends=('0', '10')):
+        _cid, lo, hi = A.CONTROLS[ctl]
+        k = KnobControl(title, lo, hi, fmt_for(kind), size, ends)
+        if size < 96:
+            k.add_css_class('small')
+        k.connect_changed(lambda v, ctl=ctl: self.queue(ctl, v))
+        self.knobs[ctl] = k
+        return k
 
-        box.append(self.section_label('On the amp'))
-        self.slot_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.slot_list.add_css_class('navigation-sidebar')
-        self.slot_rows = []
-        for i in range(1, A.SLOTS + 1):
-            row = Gtk.ListBoxRow()
-            row.add_css_class('slot-row')
-            h = Gtk.Box(spacing=10, margin_top=4, margin_bottom=4)
-            badge = Gtk.Label(label=str(i), valign=Gtk.Align.CENTER)
-            badge.add_css_class('slot-badge')
-            name = Gtk.Label(xalign=0, hexpand=True, ellipsize=3)
-            voice = Gtk.Label(xalign=1)
-            voice.add_css_class('dim-label')
-            voice.add_css_class('caption')
-            h.append(badge)
-            h.append(name)
-            h.append(voice)
-            row.set_child(h)
-            row.slot = i
-            row.name_label = name
-            row.voice_label = voice
-            self.slot_list.append(row)
-            self.slot_rows.append(row)
-        self.slot_list.connect('row-activated', self.on_slot_activated)
-        box.append(self.slot_list)
+    def build_plate(self):
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.voice = VoiceSelector(VOICE_SHORT)
+        self.voice.connect('changed', lambda _w, v: self.queue('voice', v))
+        vbox.append(self.voice)
+        self.voice_name = label('', 'knob-value')
+        vbox.append(self.voice_name)
 
-        box.append(self.section_label('Library'))
-        self.lib_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.lib_list.add_css_class('navigation-sidebar')
-        self.lib_list.connect('row-activated', self.on_library_activated)
-        box.append(self.lib_list)
+        pre = Gtk.Box(spacing=6)
+        pre.append(self.knob('gain', 'Gain', 'knob'))
+        pre.append(self.knob('volume', 'Volume', 'knob'))
 
-        bank = Gtk.Button(label='Write whole bank to amp', margin_top=6)
+        tone = Gtk.Box(spacing=6)
+        for ctl, title in (('bass', 'Bass'), ('middle', 'Middle'), ('treble', 'Treble')):
+            tone.append(self.knob(ctl, title, 'knob'))
+        tone.append(self.knob('isf', 'ISF', 'knob', ends=('USA', 'UK')))
+
+        fx = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.fx_buttons = {}
+        for key, short, _long, _t, _types in FX:
+            b = Gtk.Button()
+            b.add_css_class('fx')
+            row = Gtk.Box(spacing=10)
+            b.led = led()
+            row.append(b.led)
+            row.append(Gtk.Label(label=short.upper(), xalign=0))
+            b.set_child(row)
+            b.connect('clicked', self.on_fx_button, key)
+            fx.append(b)
+            self.fx_buttons[key] = b
+
+        # The sections wrap onto a second row when the window is narrow.
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False,
+                           min_children_per_line=1, max_children_per_line=4,
+                           row_spacing=18, valign=Gtk.Align.START, hexpand=True,
+                           margin_top=22, margin_bottom=18, margin_start=8, margin_end=8)
+        sections = (('Voice', vbox), ('Preamp', pre), ('Tone', tone), ('Effects', fx))
+        for i, (title, child) in enumerate(sections):
+            flow.append(self.section(title, child, last=i == len(sections) - 1))
+        plate = Gtk.Box()
+        plate.add_css_class('plate')
+        plate.append(flow)
+        return plate
+
+    def build_patches(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, hexpand=True)
+        head = Gtk.Box()
+        head.append(label('PATCHES ON THE AMP', 'section-title', xalign=0, hexpand=True))
+        head.append(label('Drag a knob up/down or scroll · Shift for fine', 'hint'))
+        box.append(head)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
+        self.tiles = []
+        for i in range(A.SLOTS):
+            b = Gtk.Button(hexpand=True)
+            b.add_css_class('tile')
+            v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            top = Gtk.Box()
+            top.append(label(str(i + 1), 'tile-num', xalign=0, hexpand=True))
+            b.led = led()
+            top.append(b.led)
+            v.append(top)
+            b.name = label('', 'tile-name', xalign=0, ellipsize=3)
+            b.voice = label('', 'tile-voice', xalign=0)
+            v.append(b.name)
+            v.append(b.voice)
+            b.set_child(v)
+            b.connect('clicked', self.on_tile, i + 1)
+            grid.attach(b, i % 3, i // 3, 1, 1)
+            self.tiles.append(b)
+        box.append(grid)
+        return box
+
+    def build_fx_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, width_request=400)
+        card.add_css_class('plate')
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14,
+                        margin_top=18, margin_bottom=18, margin_start=20, margin_end=20)
+        head = Gtk.Box()
+        self.fx_title = label('DELAY', 'section-title', xalign=0, hexpand=True)
+        head.append(self.fx_title)
+        self.fx_led = led()
+        head.append(self.fx_led)
+        inner.append(head)
+
+        tabs = Gtk.Box(homogeneous=True)
+        tabs.add_css_class('seg')
+        self.fx_tabs = {}
+        group = None
+        for key, _s, long, _t, _types in FX:
+            tb = Gtk.ToggleButton(label=long.upper())
+            if group:
+                tb.set_group(group)
+            group = group or tb
+            tb.connect('toggled', lambda b, key=key: b.get_active() and self.set_focus_fx(key))
+            tabs.append(tb)
+            self.fx_tabs[key] = tb
+        inner.append(tabs)
+
+        self.fx_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.type_buttons = {}
+        for key, _s, _l, type_ctl, types in FX:
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            seg = Gtk.Box(homogeneous=True)
+            seg.add_css_class('seg')
+            group, btns = None, []
+            for i, t in enumerate(types):
+                b = Gtk.ToggleButton(label=t.upper())
+                if group:
+                    b.set_group(group)
+                group = group or b
+                b.connect('toggled', self.on_type, type_ctl, i)
+                seg.append(b)
+                btns.append(b)
+            self.type_buttons[type_ctl] = btns
+            page.append(seg)
+            row = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER, homogeneous=True)
+            for ctl, title, kind in FX_KNOBS[key]:
+                row.append(self.knob(ctl, title, kind, size=72, ends=None))
+            page.append(row)
+            self.fx_stack.add_named(page, key)
+        inner.append(self.fx_stack)
+        card.append(inner)
+        return card
+
+    def build_library(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, width_request=340)
+        box.add_css_class('drawer')
+        head = Gtk.Box(margin_top=18, margin_start=18, margin_end=18)
+        head.append(label('LIBRARY', 'section-title', xalign=0, hexpand=True))
+        close = Gtk.Button(label='Close')
+        close.add_css_class('amp-btn')
+        close.connect('clicked', lambda *_: self.lib_btn.set_active(False))
+        head.append(close)
+        box.append(head)
+        box.append(label('Try a patch live, then Save it, or write it straight to a slot.',
+                         'hint', xalign=0, wrap=True, margin_start=18, margin_end=18))
+        self.lib_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                                margin_start=18, margin_end=18)
+        sw = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        sw.set_child(self.lib_list)
+        box.append(sw)
+        foot = Gtk.Box(spacing=8, margin_start=18, margin_end=18, margin_bottom=18, homogeneous=True)
+        bank = Gtk.Button(label='Write whole bank')
+        bank.add_css_class('amp-btn')
         bank.set_tooltip_text('Store every library patch that names a slot (a backup is taken first)')
         bank.connect('clicked', lambda *_: self.confirm(
             'Write the whole bank?',
             'Slots 1-6 are replaced by the library patches. A backup of the current slots is taken first.',
             'Write', self.write_bank))
-        box.append(bank)
-
-        sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
-        sw.set_child(box)
-        tv.set_content(sw)
+        folder = Gtk.Button(label='Open folder')
+        folder.add_css_class('amp-btn')
+        folder.connect('clicked', lambda *_: self.open_library())
+        foot.append(bank)
+        foot.append(folder)
+        box.append(foot)
         self.fill_library()
-        return Adw.NavigationPage(child=tv, title='Patches')
-
-    def section_label(self, text):
-        lbl = Gtk.Label(label=text, xalign=0, margin_start=12, margin_top=12, margin_bottom=2)
-        lbl.add_css_class('heading')
-        lbl.add_css_class('dim-label')
-        return lbl
-
-    def build_content(self):
-        tv = Adw.ToolbarView()
-        hb = Adw.HeaderBar()
-        self.title = Adw.WindowTitle(title='ID:Core')
-        hb.set_title_widget(self.title)
-
-        self.save_btn = Gtk.Button(label='Save')
-        self.save_btn.add_css_class('suggested-action')
-        self.save_btn.set_tooltip_text('Store the current sound in the selected slot')
-        self.save_btn.connect('clicked', lambda *_: self.save_current())
-        hb.pack_end(self.menu_button())
-        hb.pack_end(self.save_btn)
-        tv.add_top_bar(hb)
-
-        page = Adw.PreferencesPage()
-
-        amp = Adw.PreferencesGroup(title='Amp')
-        vrow = Adw.ActionRow(title='Voice')
-        vbox = Gtk.Box(valign=Gtk.Align.CENTER)
-        vbox.add_css_class('linked')
-        vbox.add_css_class('voice-switch')
-        self.voice_buttons = []
-        group = None
-        for i, v in enumerate(A.VOICES):
-            b = Gtk.ToggleButton(label=v)
-            if group:
-                b.set_group(group)
-            group = group or b
-            b.connect('toggled', self.on_voice_toggled, i)
-            vbox.append(b)
-            self.voice_buttons.append(b)
-        vrow.add_suffix(vbox)
-        amp.add(vrow)
-        self.voice_row = vrow
-        self.voice_combo = Adw.ComboRow(title='Voice', model=Gtk.StringList.new(A.VOICES),
-                                        visible=False)
-        self.voice_combo.connect('notify::selected', self.on_combo, 'voice')
-        amp.add(self.voice_combo)
-        for ctl, label, kind in AMP_ROWS:
-            amp.add(self.scale_row(ctl, label, kind))
-        page.add(amp)
-
-        for fx, (title, type_ctl, types, rows) in FX_ROWS.items():
-            g = Adw.PreferencesGroup(title=title)
-            g.add_css_class('fx-off')
-            sw = Gtk.Switch(valign=Gtk.Align.CENTER)
-            sw.connect('notify::active', self.on_fx_switch, fx, g)
-            g.set_header_suffix(sw)
-            self.fx[fx] = sw
-            combo = Adw.ComboRow(title='Type', model=Gtk.StringList.new(types))
-            combo.connect('notify::selected', self.on_combo, type_ctl)
-            self.combos[type_ctl] = combo
-            g.add(combo)
-            for ctl, label, kind in rows:
-                g.add(self.scale_row(ctl, label, kind))
-            page.add(g)
-
-        tv.set_content(page)
-        return Adw.NavigationPage(child=tv, title='Sound')
-
-    def scale_row(self, ctl, label, kind):
-        _, lo, hi = A.CONTROLS[ctl]
-        row = Adw.ActionRow(title=label)
-        if ctl in SUBTITLES:
-            row.set_subtitle(SUBTITLES[ctl])
-        step = 10 if kind == 'ms' else 1
-        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
-        sc.set_size_request(380, -1)
-        sc.set_valign(Gtk.Align.CENTER)
-        sc.set_draw_value(False)
-        val = Gtk.Label(xalign=1)
-        val.add_css_class('knob-value')
-        val.add_css_class('numeric')
-        sc.connect('value-changed', self.on_scale, ctl, kind, val)
-        row.add_suffix(sc)
-        row.add_suffix(val)
-        self.scales[ctl] = (sc, val, kind)
-        return row
+        return box
 
     def menu_button(self):
         menu = Gio.Menu()
@@ -267,7 +423,6 @@ class Window(Adw.ApplicationWindow):
         s2 = Gio.Menu()
         s2.append('Back up all slots', 'win.backup')
         s2.append('Restore last backup…', 'win.restore')
-        s2.append('Open library folder', 'win.open-library')
         menu.append_section(None, s2)
         s3 = Gio.Menu()
         s3.append('Reload from amp', 'win.refresh')
@@ -283,7 +438,6 @@ class Window(Adw.ApplicationWindow):
                              'Restore the last backup?',
                              (P.backups() or ['no backups yet'])[0],
                              'Restore', self.do_restore)),
-                         ('open-library', self.open_library),
                          ('refresh', self.refresh_all)):
             act = Gio.SimpleAction.new(name, None)
             act.connect('activate', lambda _a, _p, cb=cb: self.guard(cb))
@@ -303,7 +457,7 @@ class Window(Adw.ApplicationWindow):
         except A.AmpError as e:
             if verbose:
                 self.toast(str(e))
-            self.stack.set_visible_child_name('offline')
+            self.show_offline()
             return False
         self.amp.listeners.append(self.on_event)
         self.watch_id = GLib.io_add_watch(
@@ -315,8 +469,19 @@ class Window(Adw.ApplicationWindow):
             self.toast(str(e))
             self.disconnect_amp()
             return False
+        self.active = self.active or self.amp.slot
         self.stack.set_visible_child_name('main')
+        set_led(self.conn_led, True)
+        self.conn_label.set_label(f'{self.amp.model} · USB')
+        self.update_title()
         return True
+
+    def show_offline(self):
+        self.stack.set_visible_child_name('offline')
+        set_led(self.conn_led, False)
+        self.conn_label.set_label('Not connected')
+        self.title_main.set_label('ID:CORE')
+        self.title_sub.set_label('')
 
     def disconnect_amp(self):
         if self.watch_id:
@@ -328,7 +493,7 @@ class Window(Adw.ApplicationWindow):
             except OSError:
                 pass
         self.amp = None
-        self.stack.set_visible_child_name('offline')
+        self.show_offline()
 
     def reconnect_tick(self):
         if not self.amp:
@@ -373,32 +538,31 @@ class Window(Adw.ApplicationWindow):
 
     def refresh_all(self):
         self.names = self.amp.names()
-        voices = []
-        for i in range(1, A.SLOTS + 1):
-            voices.append(A.decode(self.amp.preset_raw(i))['voice'])
-        for row, name, v in zip(self.slot_rows, self.names, voices):
-            row.name_label.set_label(name or 'Empty')
-            row.name_label.set_opacity(1 if name else .5)
-            row.voice_label.set_label(A.VOICES[v] if v < len(A.VOICES) else '')
+        self.voices = [A.decode(self.amp.preset_raw(i))['voice'] for i in range(1, A.SLOTS + 1)]
+        for b, name, v in zip(self.tiles, self.names, self.voices):
+            b.name.set_label(name or 'EMPTY')
+            b.name.set_opacity(1 if name else .5)
+            b.voice.set_label(A.VOICES[v] if v < len(A.VOICES) else '')
         self.show_settings(self.amp.refresh())
         self.update_title()
 
     def show_settings(self, s):
         self.updating = True
         try:
-            for ctl, (sc, val, kind) in self.scales.items():
-                if ctl in self.pending:
-                    continue
-                sc.set_value(s[ctl])
-                val.set_label(fmt(kind, s[ctl]))
-            if s['voice'] < len(self.voice_buttons):
-                self.voice_buttons[s['voice']].set_active(True)
-                self.voice_combo.set_selected(s['voice'])
-            for fx, sw in self.fx.items():
-                sw.set_active(bool(s[fx]))
-            for ctl, combo in self.combos.items():
-                combo.set_selected(s[ctl])
-            self.scales['mod_manual'][0].set_sensitive(s['mod_type'] == 1)
+            for ctl, k in self.knobs.items():
+                if ctl not in self.pending:
+                    k.set_value(s[ctl])
+            if 'voice' not in self.pending:
+                self.voice.set_value(s['voice'])
+            self.voice_name.set_label(A.VOICES[s['voice']] if s['voice'] < 6 else '')
+            for key, b in self.fx_buttons.items():
+                set_led(b.led, bool(s[key]))
+            set_led(self.fx_led, bool(s[self.focus]))
+            for ctl, btns in self.type_buttons.items():
+                if s[ctl] < len(btns):
+                    btns[s[ctl]].set_active(True)
+            self.knobs['mod_manual'].set_sensitive(s['mod_type'] == 1)
+            self.last = s
         finally:
             self.updating = False
 
@@ -406,8 +570,6 @@ class Window(Adw.ApplicationWindow):
         self.active = slot
         self.edited = False
         self.previewing = None
-        for row in self.slot_rows:
-            (row.add_css_class if row.slot == slot else row.remove_css_class)('active')
         self.update_title()
 
     def mark_edited(self):
@@ -419,18 +581,36 @@ class Window(Adw.ApplicationWindow):
         if self.previewing:
             title, sub = self.previewing, 'Library preview · not saved'
         elif self.active:
-            title = self.names[self.active - 1] or f'Slot {self.active}'
+            title = self.names[self.active - 1] or f'SLOT {self.active}'
             sub = f'Slot {self.active}' + (' · edited' if self.edited else '')
         else:
-            title, sub = 'Manual', 'Not stored in a slot'
-        model = self.amp.model if self.amp else ''
-        self.title.set_title(title)
-        self.title.set_subtitle(f'{model} · {sub}' if model else sub)
+            title, sub = 'MANUAL', 'Not stored in a slot'
+        self.title_main.set_label(title.upper())
+        self.title_sub.set_label(sub)
+        for i, b in enumerate(self.tiles):
+            on = self.active == i + 1 and not self.previewing
+            (b.add_css_class if on else b.remove_css_class)('on')
+            set_led(b.led, on)
+
+    def set_focus_fx(self, key):
+        self.focus = key
+        self.fx_stack.set_visible_child_name(key)
+        self.fx_title.set_label(dict((k, l) for k, _s, l, _t, _y in FX)[key].upper())
+        if not self.fx_tabs[key].get_active():
+            self.fx_tabs[key].set_active(True)
+        for k, b in self.fx_buttons.items():
+            (b.add_css_class if k == key else b.remove_css_class)('focus')
+        if hasattr(self, 'last'):
+            set_led(self.fx_led, bool(self.last[key]))
 
     # ------------------------------------------------------------------
     # UI -> amp
     def queue(self, ctl, value):
+        if self.updating:
+            return
         self.pending[ctl] = int(value)
+        if ctl == 'voice':
+            self.voice_name.set_label(A.VOICES[int(value)])
         if not self.flush_id:
             self.flush_id = GLib.timeout_add(35, self.flush)
 
@@ -439,48 +619,36 @@ class Window(Adw.ApplicationWindow):
         pending, self.pending = self.pending, {}
         for ctl, v in pending.items():
             self.guard(self.amp.set, ctl, v)
+        if self.amp and pending:
+            self.last = self.amp.settings()
         self.mark_edited()
         return False
 
-    def on_scale(self, sc, ctl, kind, val):
-        v = sc.get_value()
-        val.set_label(fmt(kind, v))
-        if not self.updating:
-            self.queue(ctl, v)
+    def on_fx_button(self, b, key):
+        s = self.amp.settings() if self.amp else None
+        if not s:
+            return
+        on = not s[key]
+        set_led(b.led, on)
+        self.queue(key, 1 if on else 0)
+        if on:
+            self.queue('fx_focus', [k for k, *_ in FX].index(key) + 1)
+        self.set_focus_fx(key)
+        set_led(self.fx_led, on)
 
-    def on_voice_toggled(self, btn, idx):
-        if btn.get_active() and not self.updating:
-            self.queue('voice', idx)
-            self.updating = True
-            self.voice_combo.set_selected(idx)
-            self.updating = False
+    def on_type(self, b, ctl, i):
+        if b.get_active():
+            if ctl == 'mod_type':
+                self.knobs['mod_manual'].set_sensitive(i == 1)
+            self.queue(ctl, i)
 
-    def on_fx_switch(self, sw, _p, fx, group):
-        (group.remove_css_class if sw.get_active() else group.add_css_class)('fx-off')
-        if not self.updating:
-            self.queue(fx, 1 if sw.get_active() else 0)
-            if sw.get_active():
-                self.queue('fx_focus', ['mod', 'delay', 'reverb'].index(fx) + 1)
-
-    def on_combo(self, combo, _p, ctl):
-        if ctl == 'mod_type':
-            self.scales['mod_manual'][0].set_sensitive(combo.get_selected() == 1)
-        if ctl == 'voice' and not self.updating:
-            self.updating = True
-            self.voice_buttons[combo.get_selected()].set_active(True)
-            self.updating = False
-        if not self.updating:
-            self.queue(ctl, combo.get_selected())
-
-    def on_slot_activated(self, _lb, row):
+    def on_tile(self, _b, slot):
         def go():
-            self.amp.select(row.slot)
-            self.set_active(row.slot)
+            self.amp.select(slot)
+            self.set_active(slot)
             self.amp.pump(0.15)
             self.show_settings(self.amp.refresh())
         self.guard(go)
-        if self.split.get_collapsed():
-            self.split.set_show_content(True)
 
     # ------------------------------------------------------------------
     # Library
@@ -488,20 +656,27 @@ class Window(Adw.ApplicationWindow):
         while (child := self.lib_list.get_first_child()):
             self.lib_list.remove(child)
         for doc, path, user in P.library():
-            row = Adw.ActionRow(title=doc['name'], activatable=True)
-            row.set_subtitle(doc['voice'] + (f" · slot {doc['slot']}" if doc.get('slot') else '')
-                             + (' · yours' if user else ''))
+            row = Gtk.Box(spacing=10)
+            row.add_css_class('lib-row')
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, spacing=2)
+            text.append(label(doc['name'].upper(), 'lib-name', xalign=0, ellipsize=3))
+            sub = doc['voice'] + (f" · slot {doc['slot']}" if doc.get('slot') else '') + (' · yours' if user else '')
+            text.append(label(sub, 'tile-voice', xalign=0))
+            row.append(text)
             if doc.get('notes'):
                 row.set_tooltip_text(doc['notes'])
-            row.doc = doc
-            row.add_suffix(self.write_menu(doc))
+            tryb = Gtk.Button(label='Try', valign=Gtk.Align.CENTER)
+            tryb.add_css_class('amp-btn')
+            tryb.connect('clicked', lambda _b, doc=doc: self.guard(self.preview, doc))
+            row.append(tryb)
+            row.append(self.write_menu(doc))
             self.lib_list.append(row)
 
     def write_menu(self, doc):
         pop = Gtk.Popover()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6,
                       margin_bottom=6, margin_start=6, margin_end=6)
-        title = Gtk.Label(label=f"Write “{doc['name']}” to", xalign=0, margin_bottom=4)
+        title = Gtk.Label(label=f"Write {doc['name']} to", xalign=0, margin_bottom=4)
         title.add_css_class('heading')
         box.append(title)
         btns = []
@@ -520,20 +695,16 @@ class Window(Adw.ApplicationWindow):
         pop.connect('show', refresh)
         mb = Gtk.MenuButton(icon_name='document-save-symbolic', popover=pop,
                             valign=Gtk.Align.CENTER, tooltip_text='Write to a slot')
-        mb.add_css_class('flat')
+        mb.add_css_class('amp-btn')
         return mb
 
-    def on_library_activated(self, _lb, row):
-        def go():
-            self.amp.apply(P.to_settings(row.doc))
-            self.amp.pump(0.1)
-            self.previewing = row.doc['name']
-            self.edited = True
-            self.show_settings(self.amp.settings())
-            self.update_title()
-        self.guard(go)
-        if self.split.get_collapsed():
-            self.split.set_show_content(True)
+    def preview(self, doc):
+        self.amp.apply(P.to_settings(doc))
+        self.amp.pump(0.1)
+        self.previewing = doc['name']
+        self.edited = True
+        self.show_settings(self.amp.settings())
+        self.update_title()
 
     def write_patch(self, slot, doc):
         b = P.ensure_daily_backup(self.amp)
@@ -568,7 +739,6 @@ class Window(Adw.ApplicationWindow):
 
     def save_dialog(self, rename=False):
         d = Adw.AlertDialog(heading='Rename slot' if rename else 'Save to slot')
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         group = Adw.PreferencesGroup()
         slot_row = Adw.ComboRow(title='Slot', model=Gtk.StringList.new(
             [f'{i + 1}  {n or "Empty"}' for i, n in enumerate(self.names)]))
@@ -579,8 +749,7 @@ class Window(Adw.ApplicationWindow):
             self.names[r.get_selected()]))
         group.add(slot_row)
         group.add(name_row)
-        box.append(group)
-        d.set_extra_child(box)
+        d.set_extra_child(group)
         d.add_response('cancel', 'Cancel')
         d.add_response('ok', 'Rename' if rename else 'Save')
         d.set_response_appearance('ok', Adw.ResponseAppearance.SUGGESTED)
@@ -622,8 +791,7 @@ class Window(Adw.ApplicationWindow):
 
             def go():
                 doc = P.from_settings(self.amp.refresh(), name)
-                path = os.path.join(P.USER, P.slug(name) + '.json')
-                P.save(doc, path)
+                P.save(doc, os.path.join(P.USER, P.slug(name) + '.json'))
                 self.fill_library()
                 self.toast(f'Saved {name} to the library')
             self.guard(go)
@@ -666,8 +834,9 @@ class App(Adw.Application):
 
     def do_startup(self):
         Adw.Application.do_startup(self)
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         css = Gtk.CssProvider()
-        css.load_from_data(CSS, -1)
+        css.load_from_string(CSS) if hasattr(css, 'load_from_string') else css.load_from_data(CSS, -1)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
@@ -678,4 +847,5 @@ class App(Adw.Application):
 
 
 def main():
+    load_fonts()
     return App().run(sys.argv[:1])

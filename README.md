@@ -5,7 +5,8 @@ Linux tools for the **Blackstar ID:Core V2** (and the original ID:Core / ID:TVP)
 
 - **`bsamp`** – command line: read and change every control, select / store /
   rename patches, back up and restore the amp.
-- **Blackstar Amp** – a GTK 4 / libadwaita app (follows your GTK theme).
+- **Blackstar Amp** – a GTK 4 app styled like an amp faceplate: drag or scroll the
+  knobs, turn the voice switch, flip the effects, switch and store patches.
 - **DMS widget** – patch name in the [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell)
   bar; the popout switches patches, toggles effects and sets gain / volume.
 - **A patch bank** for an HH guitar (Metallica, Children of Bodom, Death, cleans).
@@ -15,10 +16,12 @@ node. Nothing is detached or reset, so **the amp keeps working as a USB sound
 card** while you use it — record in your DAW and tweak the tone at the same
 time.
 
+![Blackstar Amp](data/screenshot.png)
+
 ## Install
 
 ```sh
-sudo dnf install python3-gobject libadwaita   # usually already there
+sudo dnf install python3-gobject python3-cairo libadwaita   # usually already there
 git clone https://github.com/metalfury/dms-blackstar ~/src/dms-blackstar
 ~/src/dms-blackstar/install.sh
 ```
@@ -102,4 +105,4 @@ xvfb-run python3 tests/screenshot.py /tmp/shot   # render the app
 
 ## License
 
-GPL-3.0-or-later
+GPL-3.0-or-later. The bundled Barlow fonts (`data/fonts`) are under the SIL Open Font License.

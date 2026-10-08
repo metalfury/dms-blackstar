@@ -26,15 +26,19 @@ def snap(name):
 
 def run_steps():
     win = app.win
+    from bsamp import presets as P
     for st in steps:
         if st == 'preview':
-            row = win.lib_list.get_row_at_index(4)
-            win.on_library_activated(None, row)
+            win.guard(win.preview, P.find('bodom'))
+        elif st == 'lib':
+            win.lib_btn.set_active(True)
         elif st.startswith('slot'):
-            win.on_slot_activated(None, win.slot_rows[int(st[4:]) - 1])
+            win.on_tile(None, int(st[4:]))
+        elif st.startswith('fx'):
+            win.set_focus_fx(st[2:])
         elif st == 'offline':
             win.disconnect_amp()
-    GLib.timeout_add(700, lambda: (snap(out + '.png'), app.quit()))
+    GLib.timeout_add(900, lambda: (snap(out + '.png'), app.quit()))
     return False
 
 

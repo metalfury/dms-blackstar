@@ -17,8 +17,8 @@ if [ "${1:-}" = uninstall ]; then
   exit 0
 fi
 
-python3 -c 'import gi; gi.require_version("Adw", "1")' 2>/dev/null ||
-  echo "warning: libadwaita for Python missing (sudo dnf install python3-gobject libadwaita)" >&2
+python3 -c 'import cairo, gi; gi.require_version("Adw", "1")' 2>/dev/null ||
+  echo "warning: GTK/libadwaita for Python missing (sudo dnf install python3-gobject python3-cairo libadwaita)" >&2
 
 if ! cmp -s "$REPO/udev/70-blackstar-id.rules" "$RULE" 2>/dev/null; then
   sudo install -m 644 "$REPO/udev/70-blackstar-id.rules" "$RULE"
