@@ -1,0 +1,33 @@
+{
+  "name": "BODOM",
+  "slot": 5,
+  "notes": "Children of Bodom: yüksek gain ama orta frekans dolu, solo için hafif delay.",
+  "voice": "OD1",
+  "gain": 92,
+  "volume": 68,
+  "bass": 74,
+  "middle": 66,
+  "treble": 82,
+  "isf": 38,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": true,
+    "type": "Analogue",
+    "time": 430,
+    "feedback": 6,
+    "level": 22
+  },
+  "reverb": {
+    "on": true,
+    "type": "Hall",
+    "size": 12,
+    "level": 16
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "LEAD SOLO",
+  "notes": "Solo tonu (One, Bodom solo): orta frekans öne çıkar, delay + reverb.",
+  "voice": "OD2",
+  "gain": 100,
+  "volume": 78,
+  "bass": 70,
+  "middle": 76,
+  "treble": 76,
+  "isf": 50,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": true,
+    "type": "Analogue",
+    "time": 470,
+    "feedback": 9,
+    "level": 30
+  },
+  "reverb": {
+    "on": true,
+    "type": "Hall",
+    "size": 14,
+    "level": 22
+  }
+}

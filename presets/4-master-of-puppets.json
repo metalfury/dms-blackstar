@@ -1,0 +1,33 @@
+{
+  "name": "MASTER OF PUPPETS",
+  "slot": 4,
+  "notes": "Metallica ritim: sıkı, orta frekans hafif oyuk. Köprü manyetiği, palm mute.",
+  "voice": "Super Crunch",
+  "gain": 100,
+  "volume": 70,
+  "bass": 84,
+  "middle": 40,
+  "treble": 84,
+  "isf": 22,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": false,
+    "type": "Analogue",
+    "time": 400,
+    "feedback": 8,
+    "level": 28
+  },
+  "reverb": {
+    "on": false,
+    "type": "Room",
+    "size": 8,
+    "level": 12
+  }
+}

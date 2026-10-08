@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Blackstar Amp
+GenericName=Amplifier Editor
+Comment=Patches and settings for the Blackstar ID:Core
+Exec=bsamp gui
+Icon=audio-speakers
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=guitar;amp;blackstar;idcore;patch;
+StartupNotify=true

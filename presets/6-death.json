@@ -1,0 +1,33 @@
+{
+  "name": "DEATH",
+  "slot": 6,
+  "notes": "Death / old school death metal: en yüksek gain, oyuk orta, kuru.",
+  "voice": "OD2",
+  "gain": 108,
+  "volume": 66,
+  "bass": 86,
+  "middle": 34,
+  "treble": 78,
+  "isf": 18,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": false,
+    "type": "Analogue",
+    "time": 400,
+    "feedback": 8,
+    "level": 28
+  },
+  "reverb": {
+    "on": false,
+    "type": "Room",
+    "size": 8,
+    "level": 10
+  }
+}

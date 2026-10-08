@@ -1,0 +1,33 @@
+{
+  "name": "CLEAN ARP",
+  "slot": 2,
+  "notes": "Arpej ve temiz ritim; hafif delay ile dolgun.",
+  "voice": "Clean Bright",
+  "gain": 30,
+  "volume": 92,
+  "bass": 58,
+  "middle": 62,
+  "treble": 70,
+  "isf": 55,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": true,
+    "type": "Analogue",
+    "time": 380,
+    "feedback": 8,
+    "level": 32
+  },
+  "reverb": {
+    "on": true,
+    "type": "Room",
+    "size": 10,
+    "level": 28
+  }
+}

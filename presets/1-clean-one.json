@@ -1,0 +1,33 @@
+{
+  "name": "CLEAN ONE",
+  "slot": 1,
+  "notes": "One / Fade to Black / Bodom intro temizleri. Boyun manyetiği, ton açık.",
+  "voice": "Clean Warm",
+  "gain": 40,
+  "volume": 95,
+  "bass": 64,
+  "middle": 58,
+  "treble": 72,
+  "isf": 45,
+  "mod": {
+    "on": true,
+    "type": "Chorus",
+    "level": 45,
+    "speed": 28,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": false,
+    "type": "Analogue",
+    "time": 400,
+    "feedback": 8,
+    "level": 28
+  },
+  "reverb": {
+    "on": true,
+    "type": "Hall",
+    "size": 14,
+    "level": 38
+  }
+}

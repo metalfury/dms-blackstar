@@ -1,0 +1,13 @@
+{
+  "id": "blackstar",
+  "name": "Blackstar Amp",
+  "description": "Patches, effects and gain for a Blackstar ID:Core amp over USB",
+  "version": "1.0.0",
+  "author": "metalfury",
+  "icon": "speaker",
+  "type": "widget",
+  "capabilities": ["dankbar-widget"],
+  "component": "./BlackstarWidget.qml",
+  "requires_dms": ">=1.6.0",
+  "permissions": ["process"]
+}

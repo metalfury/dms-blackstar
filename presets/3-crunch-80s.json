@@ -1,0 +1,33 @@
+{
+  "name": "CRUNCH 80S",
+  "slot": 3,
+  "notes": "Klasik rock / erken thrash crunch. Volume knobuyla temizlenir.",
+  "voice": "Crunch",
+  "gain": 82,
+  "volume": 80,
+  "bass": 66,
+  "middle": 78,
+  "treble": 74,
+  "isf": 80,
+  "mod": {
+    "on": false,
+    "type": "Chorus",
+    "level": 40,
+    "speed": 30,
+    "segval": 12,
+    "manual": 64
+  },
+  "delay": {
+    "on": false,
+    "type": "Analogue",
+    "time": 400,
+    "feedback": 8,
+    "level": 28
+  },
+  "reverb": {
+    "on": true,
+    "type": "Room",
+    "size": 8,
+    "level": 18
+  }
+}

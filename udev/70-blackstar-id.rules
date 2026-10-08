@@ -1,0 +1,3 @@
+# Blackstar ID amplifiers: let the logged-in user talk to the amp's HID
+# control interface (the USB audio side is handled by snd-usb-audio).
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="27d4", TAG+="uaccess"
