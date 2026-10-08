@@ -239,7 +239,19 @@ class KnobControl(Gtk.Box):
         pop.connect('show', lambda *_: spin.grab_focus())
         pop.set_parent(self.readout)
         self.readout.connect('clicked', lambda *_: pop.popup())
-        self.append(self.readout)
+        self.on_revert = None
+        self.revert_btn = revert_button(lambda: self.on_revert and self.on_revert())
+        row = Gtk.Box(halign=Gtk.Align.CENTER)
+        # an invisible twin on the left keeps the value centred
+        self.spacer = Gtk.Box(width_request=22)
+        row.append(self.spacer)
+        row.append(self.readout)
+        row.append(self.revert_btn)
+        self.append(row)
+        rc = Gtk.GestureClick(button=3)
+        rc.connect('pressed', lambda *_: self.on_revert and self.revert_btn.get_can_target()
+                   and self.on_revert())
+        self.knob.add_controller(rc)
         self._syncing = False
         self.adj.connect('value-changed', self.on_adj)
 
@@ -270,12 +282,16 @@ class KnobControl(Gtk.Box):
     def connect_changed(self, cb):
         self.knob.connect('changed', lambda _k, v: cb(v))
 
+    def set_dirty(self, dirty, base_text=''):
+        set_revert(self.revert_btn, dirty, base_text)
+        (self.add_css_class if dirty else self.remove_css_class)('dirty')
+
 
 class VoiceSelector(Gtk.DrawingArea):
     """Six-position rotary switch with a chicken-head knob."""
 
     __gsignals__ = {'changed': (GObject.SignalFlags.RUN_FIRST, None, (int,))}
-    W, H = 236, 158
+    W, H = 222, 158
 
     def __init__(self, labels):
         super().__init__(accessible_role=Gtk.AccessibleRole.SLIDER)
@@ -306,7 +322,7 @@ class VoiceSelector(Gtk.DrawingArea):
         return -135 + 270 * i / (len(self.labels) - 1)
 
     def geometry(self, w, h):
-        return w / 2, h / 2 + 10, 80
+        return w / 2, h / 2 + 10, 76
 
     def set_value(self, v):
         if v != self.value and 0 <= v < len(self.labels):
@@ -410,3 +426,21 @@ def led(on=False):
 
 def set_led(box, on):
     (box.add_css_class if on else box.remove_css_class)('on')
+
+
+def revert_button(cb):
+    """Small undo arrow shown next to a control that differs from the patch."""
+    b = Gtk.Button(label='\u21ba', valign=Gtk.Align.CENTER, width_request=22)
+    b.add_css_class('revert')
+    b.connect('clicked', lambda *_: cb())
+    set_revert(b, False)
+    return b
+
+
+def set_revert(btn, dirty, base_text=''):
+    # keep the space reserved so nothing shifts when it appears
+    btn.set_opacity(1 if dirty else 0)
+    btn.set_can_target(dirty)
+    btn.set_focusable(dirty)
+    btn.set_tooltip_text(f'Back to the patch value ({base_text})' if dirty and base_text else
+                         'Back to the patch value' if dirty else None)

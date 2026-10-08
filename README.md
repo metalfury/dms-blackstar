@@ -6,7 +6,10 @@ Linux tools for the **Blackstar ID:Core V2** (and the original ID:Core / ID:TVP)
 - **`bsamp`** – command line: read and change every control, select / store /
   rename patches, back up and restore the amp.
 - **Blackstar Amp** – a GTK 4 app styled like an amp faceplate: drag or scroll the
-  knobs, turn the voice switch, flip the effects, switch and store patches.
+  knobs (or click a value to type it), turn the voice switch, flip the effects,
+  switch and store patches. Every control you change gets a ↺ to put it back to
+  the stored patch value (or right-click the knob); *Revert all*, Ctrl+Z undo,
+  Ctrl+S save.
 - **DMS widget** – patch name in the [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell)
   bar; the popout switches patches, toggles effects and sets gain / volume.
 - **A patch bank** for an HH guitar (Metallica, Children of Bodom, Death, cleans).

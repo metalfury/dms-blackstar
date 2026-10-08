@@ -3,6 +3,7 @@
 import ctypes
 import os
 import sys
+import time
 
 import gi
 
@@ -12,7 +13,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import amp as A  # noqa: E402
 from . import presets as P  # noqa: E402
-from .widgets import KnobControl, VoiceSelector, led, set_led  # noqa: E402
+from .widgets import KnobControl, VoiceSelector, led, revert_button, set_led, set_revert  # noqa: E402
 
 APP_ID = 'io.github.metalfury.bsamp'
 FONTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'fonts')
@@ -52,27 +53,33 @@ window.amp, window.amp .amp-bg {
   box-shadow: inset 0 0 0 2px #0c0c0d, inset 0 0 0 3px rgba(231,168,62,.38),
               inset 0 1px 0 4px rgba(255,255,255,.04), 0 24px 48px rgba(0,0,0,.6);
 }
-.plate-section { padding: 0 18px; border-right: 1px solid rgba(0,0,0,.6); box-shadow: 1px 0 0 rgba(255,255,255,.05); }
+.plate-section { padding: 0 14px; border-right: 1px solid rgba(0,0,0,.6); box-shadow: 1px 0 0 rgba(255,255,255,.05); }
 .plate-section.last { border-right: none; box-shadow: none; }
 .plate flowboxchild { padding: 0; background: none; }
 .section-title { font-family: "Barlow Condensed"; font-weight: 600; font-size: 11px; letter-spacing: 3px; color: #a59c8a; }
 .knob-name { font-family: "Barlow Condensed"; font-weight: 600; font-size: 14px; letter-spacing: 2px; color: #ece6da;
              text-shadow: 0 1px 0 rgba(0,0,0,.8); }
 .knob-value { font-family: Barlow; font-size: 12px; color: #a59c8a; font-feature-settings: "tnum"; }
-button.knob-value-btn { min-height: 24px; min-width: 44px; padding: 0 8px; border-radius: 6px; background: none;
+button.knob-value-btn { min-height: 24px; min-width: 36px; padding: 0 5px; border-radius: 6px; background: none;
                            border: 1px solid transparent; box-shadow: none; color: #a59c8a;
                            font-family: Barlow; font-size: 12px; font-feature-settings: "tnum"; }
 button.knob-value-btn:hover { border-color: #3a372f; background: rgba(255,255,255,.04); color: #ece6da; }
 button.knob-value-btn:active { border-color: #e7a83e; color: #ffcf73; }
 .knob-end { font-family: "Barlow Condensed"; font-weight: 600; font-size: 10px; color: #8f8879; }
 .small .knob-name { font-size: 12px; }
+.knob-control.dirty .knob-name, .voice-name.dirty { color: #ffcf73; }
+.knob-control.dirty button.knob-value-btn { color: #ffcf73; }
+button.revert { min-width: 22px; min-height: 22px; padding: 0; border-radius: 99px; background: none;
+                border: none; box-shadow: none; color: #e7a83e; font-size: 15px; font-weight: bold; }
+button.revert:hover { background: rgba(231,168,62,.15); }
+button.fx.dirty { border-color: rgba(255,207,115,.45); }
 
 .led { min-width: 9px; min-height: 9px; border-radius: 99px; background: #3a2a12;
        box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
 .led.on { background: #ffbf4d; box-shadow: 0 0 6px 2px rgba(255,170,40,.65), 0 0 18px rgba(255,170,40,.35); }
 .led.green.on { background: #7dffa8; box-shadow: 0 0 6px 2px rgba(80,230,130,.55); }
 
-button.fx { min-width: 118px; min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #050505;
+button.fx { min-width: 100px; min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #050505;
             background-image: linear-gradient(180deg, #303033, #1f1f22);
             box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 3px 6px rgba(0,0,0,.5);
             color: #ece6da; font-family: "Barlow Condensed"; font-weight: 600; font-size: 14px; letter-spacing: 3px; }
@@ -139,6 +146,7 @@ class Window(Adw.ApplicationWindow):
         self.amp = None
         self.watch_id = 0
         self.updating = False
+        self._last_hist = 0.0
         self.pending = {}
         self.flush_id = 0
         self.names = [''] * A.SLOTS
@@ -148,6 +156,9 @@ class Window(Adw.ApplicationWindow):
         self.previewing = None
         self.focus = 'delay'
         self.knobs = {}
+        self.base = None          # the stored patch the edits are compared to
+        self.history = []         # (control, previous value) for Ctrl+Z
+        self.undoing = False
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
@@ -159,6 +170,14 @@ class Window(Adw.ApplicationWindow):
         tv.set_content(self.stack)
         self.toasts.set_child(tv)
         self.install_actions()
+        sc = Gtk.ShortcutController(scope=Gtk.ShortcutScope.GLOBAL)
+        sc.add_shortcut(Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string('<Control>z'),
+                                         Gtk.CallbackAction.new(lambda *_: self.undo() or True)))
+        sc.add_shortcut(Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string('<Control><Shift>z'),
+                                         Gtk.CallbackAction.new(lambda *_: self.revert_all() or True)))
+        sc.add_shortcut(Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string('<Control>s'),
+                                         Gtk.CallbackAction.new(lambda *_: self.guard(self.save_current) or True)))
+        self.add_controller(sc)
         self.set_focus_fx(self.focus)
 
         self.connect('close-request', lambda *_: self.disconnect_amp() or False)
@@ -195,6 +214,11 @@ class Window(Adw.ApplicationWindow):
         self.lib_btn.add_css_class('amp-btn')
         self.lib_btn.connect('toggled', lambda b: self.drawer.set_reveal_child(b.get_active()))
         hb.pack_end(self.lib_btn)
+        self.revert_all_btn = Gtk.Button(label='Revert all', visible=False)
+        self.revert_all_btn.add_css_class('amp-btn')
+        self.revert_all_btn.set_tooltip_text('Undo every change since the patch was loaded (Ctrl+Shift+Z)')
+        self.revert_all_btn.connect('clicked', lambda *_: self.revert_all())
+        hb.pack_end(self.revert_all_btn)
         return hb
 
     def build_offline(self):
@@ -251,6 +275,7 @@ class Window(Adw.ApplicationWindow):
         if size < 96:
             k.add_css_class('small')
         k.connect_changed(lambda v, ctl=ctl: self.queue(ctl, v))
+        k.on_revert = lambda ctl=ctl: self.revert(ctl)
         self.knobs[ctl] = k
         return k
 
@@ -259,8 +284,13 @@ class Window(Adw.ApplicationWindow):
         self.voice = VoiceSelector(VOICE_SHORT)
         self.voice.connect('changed', lambda _w, v: self.queue('voice', v))
         vbox.append(self.voice)
-        self.voice_name = label('', 'knob-value')
-        vbox.append(self.voice_name)
+        vrow = Gtk.Box(halign=Gtk.Align.CENTER)
+        vrow.append(Gtk.Box(width_request=22))
+        self.voice_name = label('', 'knob-value', 'voice-name')
+        vrow.append(self.voice_name)
+        self.voice_revert = revert_button(lambda: self.revert('voice'))
+        vrow.append(self.voice_revert)
+        vbox.append(vrow)
 
         pre = Gtk.Box(spacing=6)
         pre.append(self.knob('gain', 'Gain', 'knob'))
@@ -282,7 +312,11 @@ class Window(Adw.ApplicationWindow):
             row.append(Gtk.Label(label=short.upper(), xalign=0))
             b.set_child(row)
             b.connect('clicked', self.on_fx_button, key)
-            fx.append(b)
+            line = Gtk.Box(spacing=4)
+            line.append(b)
+            b.revert = revert_button(lambda key=key: self.revert(key))
+            line.append(b.revert)
+            fx.append(line)
             self.fx_buttons[key] = b
 
         # The sections wrap onto a second row when the window is narrow.
@@ -368,7 +402,12 @@ class Window(Adw.ApplicationWindow):
                 seg.append(b)
                 btns.append(b)
             self.type_buttons[type_ctl] = btns
-            page.append(seg)
+            seg.set_hexpand(True)
+            line = Gtk.Box(spacing=4)
+            line.append(seg)
+            btns[0].revert = revert_button(lambda c=type_ctl: self.revert(c))
+            line.append(btns[0].revert)
+            page.append(line)
             row = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER, homogeneous=True)
             for ctl, title, kind in FX_KNOBS[key]:
                 row.append(self.knob(ctl, title, kind, size=72, ends=None))
@@ -542,16 +581,97 @@ class Window(Adw.ApplicationWindow):
             b.name.set_label(name or 'EMPTY')
             b.name.set_opacity(1 if name else .5)
             b.voice.set_label(A.VOICES[v] if v < len(A.VOICES) else '')
-        self.show_settings(self.amp.refresh())
+        cur = self.amp.refresh()
+        slot = self.active or self.amp.slot
+        self.rebase(A.decode(self.amp.preset_raw(slot)) if slot else cur)
+        self.show_settings(cur)
         self.update_title()
 
-    def show_settings(self, s):
+    def rebase(self, s):
+        """Remember ``s`` as the patch that edits are compared to."""
+        self.base = dict(s)
+        self.history.clear()
+        self.update_dirty()
+
+    def current(self):
+        cur = dict(getattr(self, 'last', None) or {})
+        cur.update(self.pending)
+        return cur
+
+    def base_text(self, ctl):
+        v = self.base[ctl]
+        if ctl in self.knobs:
+            return self.knobs[ctl].text(v)
+        if ctl == 'voice':
+            return A.VOICES[v] if v < 6 else str(v)
+        if ctl in self.type_buttons:
+            return self.type_buttons[ctl][v].get_label().title() if v < 4 else str(v)
+        return 'on' if v else 'off'
+
+    def update_dirty(self):
+        if not self.base or not getattr(self, 'last', None):
+            return
+        cur = self.current()
+        diff = lambda c: cur.get(c) != self.base.get(c)  # noqa: E731
+        any_dirty = False
+        for ctl, k in self.knobs.items():
+            d = diff(ctl)
+            k.set_dirty(d, self.base_text(ctl))
+            any_dirty |= d
+        d = diff('voice')
+        set_revert(self.voice_revert, d, self.base_text('voice'))
+        (self.voice_name.add_css_class if d else self.voice_name.remove_css_class)('dirty')
+        any_dirty |= d
+        for key, b in self.fx_buttons.items():
+            d = diff(key)
+            set_revert(b.revert, d, self.base_text(key))
+            (b.add_css_class if d else b.remove_css_class)('dirty')
+            any_dirty |= d
+        for ctl, btns in self.type_buttons.items():
+            d = diff(ctl)
+            set_revert(btns[0].revert, d, self.base_text(ctl))
+            any_dirty |= d
+        self.revert_all_btn.set_visible(any_dirty)
+
+    def set_controls(self, values, record=True):
+        """Change controls from code (revert/undo): update the UI and send."""
+        merged = self.current()
+        merged.update(values)
+        self.undoing = not record
+        for ctl, v in values.items():
+            self.queue(ctl, v)
+        self.undoing = False
+        self.show_settings(merged, keep_pending=False)
+
+    def revert(self, ctl):
+        if self.base and ctl in self.base:
+            self.set_controls({ctl: self.base[ctl]})
+
+    def revert_all(self):
+        if not self.base:
+            return
+        cur = self.current()
+        changed = {c: v for c, v in self.base.items()
+                   if c in A.CONTROLS and c not in A.READ_ONLY and cur.get(c) != v}
+        if changed:
+            self.set_controls(changed)
+            self.toast(f'Reverted {len(changed)} change' + ('s' if len(changed) > 1 else ''))
+
+    def undo(self):
+        if not self.history:
+            self.toast('Nothing to undo')
+            return
+        ctl, old = self.history.pop()
+        self.set_controls({ctl: old}, record=False)
+
+    def show_settings(self, s, keep_pending=True):
         self.updating = True
         try:
+            skip = self.pending if keep_pending else {}
             for ctl, k in self.knobs.items():
-                if ctl not in self.pending:
+                if ctl not in skip:
                     k.set_value(s[ctl])
-            if 'voice' not in self.pending:
+            if 'voice' not in skip:
                 self.voice.set_value(s['voice'])
             self.voice_name.set_label(A.VOICES[s['voice']] if s['voice'] < 6 else '')
             for key, b in self.fx_buttons.items():
@@ -561,9 +681,10 @@ class Window(Adw.ApplicationWindow):
                 if s[ctl] < len(btns):
                     btns[s[ctl]].set_active(True)
             self.knobs['mod_manual'].set_sensitive(s['mod_type'] == 1)
-            self.last = s
+            self.last = dict(s)
         finally:
             self.updating = False
+        self.update_dirty()
 
     def set_active(self, slot):
         self.active = slot
@@ -607,11 +728,21 @@ class Window(Adw.ApplicationWindow):
     def queue(self, ctl, value):
         if self.updating:
             return
+        if not self.undoing and ctl != 'fx_focus':
+            old = self.current().get(ctl)
+            now = time.monotonic()
+            # one undo step per gesture: merge quick successive changes
+            if old is not None and old != int(value) and not (
+                    self.history and self.history[-1][0] == ctl and now - self._last_hist < 1.0):
+                self.history.append((ctl, old))
+                del self.history[:-200]
+            self._last_hist = now
         self.pending[ctl] = int(value)
         if ctl == 'voice':
             self.voice_name.set_label(A.VOICES[int(value)])
         if not self.flush_id:
             self.flush_id = GLib.timeout_add(35, self.flush)
+        self.update_dirty()
 
     def flush(self):
         self.flush_id = 0
@@ -619,7 +750,8 @@ class Window(Adw.ApplicationWindow):
         for ctl, v in pending.items():
             self.guard(self.amp.set, ctl, v)
         if self.amp and pending:
-            self.last = self.amp.settings()
+            self.last = dict(self.amp.settings())
+        self.update_dirty()
         self.mark_edited()
         return False
 
@@ -646,7 +778,9 @@ class Window(Adw.ApplicationWindow):
             self.amp.select(slot)
             self.set_active(slot)
             self.amp.pump(0.15)
-            self.show_settings(self.amp.refresh())
+            cur = self.amp.refresh()
+            self.rebase(cur)
+            self.show_settings(cur)
         self.guard(go)
 
     # ------------------------------------------------------------------
@@ -702,6 +836,7 @@ class Window(Adw.ApplicationWindow):
         self.amp.pump(0.1)
         self.previewing = doc['name']
         self.edited = True
+        self.rebase(self.amp.settings())
         self.show_settings(self.amp.settings())
         self.update_title()
 

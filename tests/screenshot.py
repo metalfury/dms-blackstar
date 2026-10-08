@@ -36,6 +36,12 @@ def run_steps():
             win.on_tile(None, int(st[4:]))
         elif st.startswith('fx'):
             win.set_focus_fx(st[2:])
+        elif st == 'edit':
+            win.knobs['gain'].knob.user_set(60)
+            win.knobs['treble'].knob.user_set(110)
+            win.voice.user_set(5)
+            win.on_fx_button(win.fx_buttons['delay'], 'delay')
+            win.flush()
         elif st == 'pop':
             win.knobs['gain'].popover.popup()
         elif st == 'offline':
